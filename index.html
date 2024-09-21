@@ -1,0 +1,260 @@
+
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Into the rabbit hole...</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-8">
+    <div class="max-w-4xl mx-auto bg-white rounded-xl shadow-md overflow-hidden p-6">
+        <h1 class="text-3xl font-bold mb-2">rabbit.hole</h1>
+        <h2 class="text-xl text-gray-600 mb-6">jump</h2>
+        <div class="flex mb-4">
+            <input type="text" id="urlInput" placeholder="Insert link..." class="flex-grow px-3 py-2 placeholder-gray-400 border border-gray-300 rounded-l-md focus:outline-none focus:ring focus:ring-indigo-100 focus:border-indigo-300">
+            <button onclick="extractLinks()" class="px-4 py-2 font-bold text-white bg-blue-500 rounded-r-md hover:bg-blue-600 focus:outline-none focus:shadow-outline">
+                jump
+            </button>
+        </div>
+        <div id="progressContainer" class="mt-4 hidden">
+            <div class="w-full bg-gray-200 rounded-full h-2.5 dark:bg-gray-700">
+                <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+            </div>
+            <p id="progressText" class="text-sm text-gray-600 mt-1">Processing links...</p>
+        </div>
+        <div id="result" class="mt-4"></div>
+    </div>
+
+    <script>
+        const socialMediaDomains = ['facebook.com', 'twitter.com', 'instagram.com', 'linkedin.com', 'youtube.com', 'pinterest.com', 'x.com'];
+
+        function getDomain(url) {
+            try {
+                return new URL(url).hostname;
+            } catch {
+                return null;
+            }
+        }
+
+        async function extractLinks(url = null) {
+            const urlInput = document.getElementById('urlInput');
+            if (url) {
+                urlInput.value = url;
+            }
+            const inputUrl = url || urlInput.value;
+            const resultDiv = document.getElementById('result');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            const progressText = document.getElementById('progressText');
+            
+            resultDiv.innerHTML = '';
+            progressContainer.classList.remove('hidden');
+            progressBar.style.width = '0%';
+            progressText.textContent = 'Processing links...';
+
+            try {
+                const response = await fetch(`https://api.allorigins.win/get?url=${encodeURIComponent(inputUrl)}`);
+                const data = await response.json();
+                
+                if (data.contents) {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(data.contents, 'text/html');
+                    
+                    const originalDomain = getDomain(inputUrl);
+                    const allLinks = Array.from(doc.querySelectorAll('a')).map(a => a.href);
+                    
+                    const selfReferenceLinks = allLinks.filter(href => getDomain(href) === originalDomain);
+                    const externalLinks = allLinks.filter(href => {
+                        const domain = getDomain(href);
+                        return domain && domain !== originalDomain && !isSocialMediaDomain(domain) && !isPDFLink(href) && !isAmazonLink(href);
+                    });
+                    const socialMediaLinks = allLinks.filter(href => {
+                        const domain = getDomain(href);
+                        return domain && isSocialMediaDomain(domain);
+                    });
+                    const pdfLinks = allLinks.filter(href => isPDFLink(href));
+                    const amazonLinks = allLinks.filter(href => isAmazonLink(href));
+
+                    const headline = doc.querySelector('h1')?.textContent || doc.title || 'No headline found';
+                    const totalLinksCount = allLinks.length;
+
+                    let resultHTML = `
+                        <section class="mb-8">
+                            <h2 class="text-2xl font-bold mb-2">Overview</h2>
+                            <div>
+                                <p class="mb-2"><strong>Headline:</strong> ${headline}</p>
+                                <p><strong>Total Links Found:</strong> ${totalLinksCount}</p>
+                            </div>
+                        </section>
+
+                        <div class="mb-4 flex justify-start space-x-4">
+                            <button id="collapseAllBtn" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 focus:outline-none">
+                                Collapse All
+                            </button>
+                            <button id="expandAllBtn" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 focus:outline-none">
+                                Expand All
+                            </button>
+                        </div>
+
+                        <section class="mb-8">
+                            <h2 class="text-2xl font-bold mb-2 cursor-pointer flex items-center" onclick="toggleSection(this)">
+                                <span class="transform transition-transform duration-200 inline-block mr-2">▼</span>
+                                Self-reference Links (${selfReferenceLinks.length})
+                            </h2>
+                            <div class="section-content">
+                                <ul class="list-disc pl-5">
+                                    ${selfReferenceLinks.map(link => createLinkListItem(link, false)).join('')}
+                                </ul>
+                            </div>
+                        </section>
+
+                        <section class="mb-8">
+                            <h2 class="text-2xl font-bold mb-2 cursor-pointer flex items-center" onclick="toggleSection(this)">
+                                <span class="transform transition-transform duration-200 inline-block mr-2">▼</span>
+                                External Links (${externalLinks.length})
+                            </h2>
+                            <div class="section-content">
+                                <ul class="list-disc pl-5">
+                                    ${externalLinks.map(link => createLinkListItem(link, true)).join('')}
+                                </ul>
+                            </div>
+                        </section>
+
+                        <section class="mb-8">
+                            <h2 class="text-2xl font-bold mb-2 cursor-pointer flex items-center" onclick="toggleSection(this)">
+                                <span class="transform transition-transform duration-200 inline-block mr-2">▼</span>
+                                Books (${amazonLinks.length})
+                            </h2>
+                            <div class="section-content">
+                                <ul class="list-disc pl-5">
+                                    ${amazonLinks.map(link => createLinkListItem(link, false)).join('')}
+                                </ul>
+                            </div>
+                        </section>
+
+                        <section class="mb-8">
+                            <h2 class="text-2xl font-bold mb-2 cursor-pointer flex items-center" onclick="toggleSection(this)">
+                                <span class="transform transition-transform duration-200 inline-block mr-2">▼</span>
+                                Papers (${pdfLinks.length})
+                            </h2>
+                            <div class="section-content">
+                                <ul class="list-disc pl-5">
+                                    ${pdfLinks.map(link => createLinkListItem(link, false)).join('')}
+                                </ul>
+                            </div>
+                        </section>
+
+                        <section class="mb-8">
+                            <h2 class="text-2xl font-bold mb-2 cursor-pointer flex items-center" onclick="toggleSection(this)">
+                                <span class="transform transition-transform duration-200 inline-block mr-2">▼</span>
+                                Social Media Links (${socialMediaLinks.length})
+                            </h2>
+                            <div class="section-content">
+                                <ul class="list-disc pl-5">
+                                    ${socialMediaLinks.map(link => createLinkListItem(link, false)).join('')}
+                                </ul>
+                            </div>
+                        </section>
+                    `;
+
+                    resultDiv.innerHTML = resultHTML;
+
+                    // Add event listeners to copy and jump buttons
+                    document.querySelectorAll('.copy-btn').forEach(button => {
+                        button.addEventListener('click', copyToClipboard);
+                    });
+                    document.querySelectorAll('.jump-btn').forEach(button => {
+                        button.addEventListener('click', jumpToLink);
+                    });
+
+                    // Add event listeners for collapse and expand all buttons
+                    document.getElementById('collapseAllBtn').addEventListener('click', collapseAllSections);
+                    document.getElementById('expandAllBtn').addEventListener('click', expandAllSections);
+                } else {
+                    resultDiv.innerHTML = `<p class="text-red-500">Could not fetch the content of the page.</p>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p class="text-red-500">Error: ${error.message}</p>`;
+            } finally {
+                progressContainer.classList.add('hidden');
+            }
+        }
+
+        function createLinkListItem(link, includeJumpButton) {
+            return `
+                <li class="flex items-center mb-2">
+                    <button class="copy-btn mr-2 px-2 py-1 bg-gray-200 rounded hover:bg-gray-300 focus:outline-none" data-link="${link}">
+                        Copy
+                    </button>
+                    ${includeJumpButton ? `
+                    <button class="jump-btn mr-2 px-2 py-1 bg-blue-200 rounded hover:bg-blue-300 focus:outline-none" data-link="${link}">
+                        Jump
+                    </button>
+                    ` : ''}
+                    <a href="${link}" target="_blank" class="text-blue-600 hover:underline">${link}</a>
+                </li>
+            `;
+        }
+
+        function copyToClipboard(event) {
+            const link = event.target.getAttribute('data-link');
+            navigator.clipboard.writeText(link).then(() => {
+                const originalText = event.target.textContent;
+                event.target.textContent = 'Copied!';
+                event.target.classList.add('bg-green-500', 'text-white');
+                setTimeout(() => {
+                    event.target.textContent = originalText;
+                    event.target.classList.remove('bg-green-500', 'text-white');
+                }, 1500);
+            }).catch(err => {
+                console.error('Failed to copy text: ', err);
+            });
+        }
+
+        function jumpToLink(event) {
+            const link = event.target.getAttribute('data-link');
+            extractLinks(link);
+        }
+
+        function isSocialMediaDomain(domain) {
+            const socialMediaDomains = ['facebook.com', 'twitter.com', 'instagram.com', 'linkedin.com', 'youtube.com', 'pinterest.com', 'x.com'];
+            return socialMediaDomains.some(socialDomain => domain.includes(socialDomain));
+        }
+
+        function isPDFLink(url) {
+            return url.toLowerCase().endsWith('.pdf') || url.toLowerCase().includes('/pdf/');
+        }
+
+        function isAmazonLink(url) {
+            return url.includes('amazon.com') || url.includes('amzn.to');
+        }
+
+        function toggleSection(header) {
+            const content = header.nextElementSibling;
+            const arrow = header.querySelector('span');
+            
+            content.classList.toggle('hidden');
+            arrow.classList.toggle('rotate-[-90deg]');
+        }
+
+        function collapseAllSections() {
+            document.querySelectorAll('.section-content').forEach(content => {
+                content.classList.add('hidden');
+            });
+            document.querySelectorAll('h2 span').forEach(arrow => {
+                arrow.classList.add('rotate-[-90deg]');
+            });
+        }
+
+        function expandAllSections() {
+            document.querySelectorAll('.section-content').forEach(content => {
+                content.classList.remove('hidden');
+            });
+            document.querySelectorAll('h2 span').forEach(arrow => {
+                arrow.classList.remove('rotate-[-90deg]');
+            });
+        }
+    </script>
+</body>
+</html>
